@@ -33,15 +33,16 @@
 ros::Publisher table_pub;
 ros::Publisher not_table_pub;
 ros::Publisher cyl_pub;
-
+ros::Publisher cyl_pub2;
+ros::Publisher pub2;
 typedef pcl::PointXYZ PointT;
 
 
 std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr> 
-    cloud_segment(const boost::shared_ptr<const sensor_msgs::PointCloud2>& input) {
+    cloud_segment(const sensor_msgs::PointCloud2& input) {
     
     pcl::PCLPointCloud2 cloud;
-    pcl_conversions::toPCL(*input, cloud);
+    pcl_conversions::toPCL(input, cloud);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromPCLPointCloud2(cloud,*temp_cloud);
@@ -80,73 +81,7 @@ std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, pcl::PointCloud<pcl::PointXYZ>::P
       pcl::PointCloud<pcl::PointXYZ>::Ptr> (table_cloud, not_table_cloud);
 }
 
-void cloud_cb (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
-{
-  std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, 
-      pcl::PointCloud<pcl::PointXYZ>::Ptr> table_clouds = cloud_segment(input);
-
-    // Create a container for the data.
-    pcl::PCLPointCloud2 outputInProgressA;
-    sensor_msgs::PointCloud2 outputA;
-    
-    pcl::toPCLPointCloud2(*table_clouds.first, outputInProgressA);
-    pcl_conversions::fromPCL(outputInProgressA, outputA);
-  
-    pcl::PCLPointCloud2 outputInProgressB;
-
-    sensor_msgs::PointCloud2 outputBetter;
-    
-    pcl::toPCLPointCloud2(*table_clouds.second, outputInProgressB);
-    pcl_conversions::fromPCL(outputInProgressB, outputBetter);
-
-  // Do data processing here...
-    ROS_INFO("Now publishing table clouds");
-
-  // Publish the data.
-    table_pub.publish (outputA);
-    not_table_pub.publish (outputBetter);
-
-
-    
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
-  
-    pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
-    pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
-    pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
-
-    seg.setOptimizeCoefficients (true);
-    
-    // Mandatory
-    seg.setModelType (pcl::SACMODEL_PLANE);
-    seg.setMethodType (pcl::SAC_RANSAC);
-    seg.setDistanceThreshold (0.01);
-
-    seg.setInputCloud (table_clouds.second);
-    seg.segment (*inliers, *coefficients);
-    tree->setInputCloud (table_clouds.second);
-    seg.setSamplesMaxDist(0.0000001, tree);
-    pcl::ExtractIndices<pcl::PointXYZ> extract;
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr not_table_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-
-    extract.setInputCloud (table_clouds.second);
-    extract.setIndices (inliers);
-
-    extract.setNegative (true); 
-    extract.filter (*not_table_cloud);
-
-
-    pcl::PCLPointCloud2 outputInProgressC;
-    sensor_msgs::PointCloud2 outputC;
-    pcl::toPCLPointCloud2(*not_table_cloud, outputInProgressC);
-    pcl_conversions::fromPCL(outputInProgressC, outputC);
-    cyl_pub.publish (outputC);
-
-    
-}
-
-/*
-void cloud_cb3 (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
+void cloud_cb3 ( sensor_msgs::PointCloud2& input)
 {
     // All the objects needed
     // pcl::PCDReader reader; // Think we can get rid of this as well as its call to read
@@ -160,7 +95,7 @@ void cloud_cb3 (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
 
     // We added this
     pcl::PCLPointCloud2 cloud2;
-    pcl_conversions::toPCL(*input, cloud2);
+    pcl_conversions::toPCL(input, cloud2);
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromPCLPointCloud2(cloud2,*cloud);
 
@@ -185,7 +120,7 @@ void cloud_cb3 (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
     ne.setKSearch (50);
     ne.compute (*cloud_normals);
 
-    // Create the segmentation object for the planar model and set all the parameters
+    // // Create the segmentation object for the planar model and set all the parameters
     seg.setOptimizeCoefficients (true);
     seg.setModelType (pcl::SACMODEL_NORMAL_PLANE);
     seg.setNormalDistanceWeight (0.1);
@@ -204,8 +139,8 @@ void cloud_cb3 (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
     extract.setNegative (false);
 
     // Write the planar inliers to disk
-    pcl::PointCloud<PointT>::Ptr cloud_plane (new pcl::PointCloud<PointT> ());
-    extract.filter (*cloud_plane);
+    // pcl::PointCloud<PointT>::Ptr cloud_plane (new pcl::PointCloud<PointT> ());
+    // extract.filter (*cloud_plane);
 
     // Remove the planar inliers, extract the rest
     extract.setNegative (true);
@@ -222,7 +157,7 @@ void cloud_cb3 (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
     seg.setNormalDistanceWeight (0.1);
     seg.setMaxIterations (10000);
     seg.setDistanceThreshold (0.01);
-    // seg.setRadiusLimits (0, 0.1);
+    seg.setRadiusLimits (0, 0.05);
     seg.setInputCloud (cloud_filtered2);
     seg.setInputNormals (cloud_normals2);
 
@@ -243,7 +178,91 @@ void cloud_cb3 (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
     pcl_conversions::fromPCL(outputInProgress, output);
     pub2.publish (output);
 }
-*/
+
+
+void cloud_cb (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
+{
+    pcl::PCLPointCloud2 cloud2;
+    pcl_conversions::toPCL(*input, cloud2);
+    sensor_msgs::PointCloud2 will_become_cylinder;
+    pcl_conversions::fromPCL(cloud2, will_become_cylinder);
+
+    std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, 
+      pcl::PointCloud<pcl::PointXYZ>::Ptr> table_clouds = cloud_segment(will_become_cylinder);
+
+    // Create a container for the data.
+    pcl::PCLPointCloud2 outputInProgressA;
+    sensor_msgs::PointCloud2 outputA;
+    
+    pcl::toPCLPointCloud2(*table_clouds.first, outputInProgressA);
+    pcl_conversions::fromPCL(outputInProgressA, outputA);
+  
+    pcl::PCLPointCloud2 outputInProgressB;
+
+    sensor_msgs::PointCloud2 outputBetter;
+    
+    pcl::toPCLPointCloud2(*table_clouds.second, outputInProgressB);
+    pcl_conversions::fromPCL(outputInProgressB, outputBetter);
+
+  // Do data processing here...
+    ROS_INFO("Now publishing table clouds");
+
+
+    std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, 
+      pcl::PointCloud<pcl::PointXYZ>::Ptr> object_clouds= cloud_segment(outputBetter);
+
+    pcl::PCLPointCloud2 outputInProgressA2;
+    sensor_msgs::PointCloud2 outputA2;
+    
+    pcl::toPCLPointCloud2(*object_clouds.second, outputInProgressA2);
+    pcl_conversions::fromPCL(outputInProgressA2, outputA2);
+
+    cyl_pub.publish (outputA2);
+    cloud_cb3(will_become_cylinder); //test this
+  // // Publish the data.
+     table_pub.publish (outputA);
+     not_table_pub.publish (outputBetter);
+    
+  //   pcl::SACSegmentation<pcl::PointXYZ> seg;
+  
+  //   pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
+  //   pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+  //   pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+
+  //   seg.setOptimizeCoefficients (true);
+    
+  //   // Mandatory
+  //   seg.setModelType (pcl::SACMODEL_CYLINDER);
+  //   seg.setMethodType (pcl::SAC_RANSAC);
+  //   seg.setDistanceThreshold (0.01);
+
+  //   seg.setInputCloud (table_clouds.second);
+  //   seg.segment (*inliers, *coefficients);
+  //   tree->setInputCloud (table_clouds.second);
+  //   seg.setSamplesMaxDist(0.01, tree); //tune out the floor
+  //   pcl::ExtractIndices<pcl::PointXYZ> extract;
+
+  //   pcl::PointCloud<pcl::PointXYZ>::Ptr not_table_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+
+  //   extract.setInputCloud (table_clouds.second);
+  //   extract.setIndices (inliers);
+
+  //   extract.setNegative (true); 
+  //   extract.filter (*not_table_cloud);
+
+
+  //   pcl::PCLPointCloud2 outputInProgressC;
+  //   sensor_msgs::PointCloud2 outputC;
+  //   pcl::toPCLPointCloud2(*not_table_cloud, outputInProgressC);
+  //   pcl_conversions::fromPCL(outputInProgressC, outputC);
+
+   
+
+
+    
+}
+
+
 
 
 int main (int argc, char** argv)
@@ -260,7 +279,8 @@ int main (int argc, char** argv)
   table_pub = nh.advertise<sensor_msgs::PointCloud2> ("table", 1);
   not_table_pub = nh.advertise<sensor_msgs::PointCloud2> ("not_table", 1);
   cyl_pub = nh.advertise<sensor_msgs::PointCloud2> ("objects", 1);
-  
+  pub2 = nh.advertise<sensor_msgs::PointCloud2> ("please_cylinder", 1);
+//  cyl_pub2 = nh.advertise<sensor_msgs::PointCloud2> ("hopefully_just_cylinder", 1);
   // pub2 = nh.advertise<sensor_msgs::PointCloud2> ("them_chips", 1);
 
   // Spin
