@@ -28,30 +28,36 @@
 #include <pcl/filters/passthrough.h>
 #include <pcl/features/normal_3d.h>
 
+//tf 
+#include <tf/transform_broadcaster.h>
+#include <tf/transform_listener.h>
+#include <geometry_msgs/Pose.h>
 #include <utility>
+#include <tf2_ros/transform_broadcaster.h>
 
 ros::Publisher table_pub;
 ros::Publisher not_table_pub;
 ros::Publisher cyl_pub;
 ros::Publisher cyl_pub2;
+
 ros::Publisher pub2;
-typedef pcl::PointXYZ PointT;
+typedef pcl::PointXYZRGB PointT;
 
 
-std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr> 
+std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointCloud<pcl::PointXYZRGB>::Ptr> 
     cloud_segment(const sensor_msgs::PointCloud2& input) {
     
     pcl::PCLPointCloud2 cloud;
     pcl_conversions::toPCL(input, cloud);
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::fromPCLPointCloud2(cloud,*temp_cloud);
 
     pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
     pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
 
     // Create the segmentation object
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
+    pcl::SACSegmentation<pcl::PointXYZRGB> seg;
 
     // Optional
     seg.setOptimizeCoefficients (true);
@@ -64,10 +70,10 @@ std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, pcl::PointCloud<pcl::PointXYZ>::P
     seg.setInputCloud (temp_cloud);
     seg.segment (*inliers, *coefficients);
 
-    pcl::ExtractIndices<pcl::PointXYZ> extract;
+    pcl::ExtractIndices<pcl::PointXYZRGB> extract;
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr table_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr not_table_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr table_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr not_table_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 
     extract.setInputCloud (temp_cloud);
     extract.setIndices (inliers);
@@ -77,8 +83,8 @@ std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, pcl::PointCloud<pcl::PointXYZ>::P
     extract.setNegative (true); 
     extract.filter (*not_table_cloud);
 
-  return std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, 
-      pcl::PointCloud<pcl::PointXYZ>::Ptr> (table_cloud, not_table_cloud);
+  return std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, 
+      pcl::PointCloud<pcl::PointXYZRGB>::Ptr> (table_cloud, not_table_cloud);
 }
 
 void cloud_cb3 ( sensor_msgs::PointCloud2& input)
@@ -96,7 +102,7 @@ void cloud_cb3 ( sensor_msgs::PointCloud2& input)
     // We added this
     pcl::PCLPointCloud2 cloud2;
     pcl_conversions::toPCL(input, cloud2);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::fromPCLPointCloud2(cloud2,*cloud);
 
     // Datasets
@@ -171,12 +177,164 @@ void cloud_cb3 ( sensor_msgs::PointCloud2& input)
     pcl::PointCloud<PointT>::Ptr cloud_cylinder (new pcl::PointCloud<PointT> ());
     extract.filter (*cloud_cylinder);
 
+     //publish tf coeff
+
+    geometry_msgs::TransformStamped transformStamped;
+  
+    transformStamped.header.stamp = ros::Time::now();
+    transformStamped.header.frame_id = "/head_rgbd_sensor_rgb_frame";
+    transformStamped.child_frame_id = "/cylinder";
+
+
+   transformStamped.transform.translation.x = coefficients_cylinder->values[0];
+   transformStamped.transform.translation.y = coefficients_cylinder->values[1];
+   transformStamped.transform.translation.z = coefficients_cylinder->values[2];
+
+   transformStamped.transform.rotation.x = 0;
+   transformStamped.transform.rotation.y = 0;
+   transformStamped.transform.rotation.z = 0;
+   transformStamped.transform.rotation.w = 1;
+
+    static 	tf::TransformBroadcaster tf_br;
+   	// tf::Transform transform;
+  	// transform.setOrigin(tf::Vector3(coefficients_cylinder->values[0], coefficients_cylinder->values[1], coefficients_cylinder->values[2]));
+  	// transform.setRotation(tf::Quaternion(0, 0, 0) );
+  	tf_br.sendTransform( transformStamped);
+
     // We also added this
     pcl::PCLPointCloud2 outputInProgress;
     sensor_msgs::PointCloud2 output;
     pcl::toPCLPointCloud2(*cloud_cylinder, outputInProgress);
     pcl_conversions::fromPCL(outputInProgress, output);
     pub2.publish (output);
+}
+
+
+
+void cloud_cb4 ( sensor_msgs::PointCloud2& input)
+{
+    // All the objects needed
+    // pcl::PCDReader reader; // Think we can get rid of this as well as its call to read
+    pcl::PassThrough<PointT> pass;
+    pcl::NormalEstimation<PointT, pcl::Normal> ne;
+    pcl::SACSegmentationFromNormals<PointT, pcl::Normal> seg; 
+    // pcl::PCDWriter writer;
+    pcl::ExtractIndices<PointT> extract;
+    pcl::ExtractIndices<pcl::Normal> extract_normals;
+    pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
+
+    // We added this
+    pcl::PCLPointCloud2 cloud2;
+    pcl_conversions::toPCL(input, cloud2);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::fromPCLPointCloud2(cloud2,*cloud);
+
+    // Datasets
+    //   pcl::PointCloud<PointT>::Ptr cloud (new pcl::PointCloud<PointT>);
+    pcl::PointCloud<PointT>::Ptr cloud_filtered (new pcl::PointCloud<PointT>);
+    pcl::PointCloud<pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud<pcl::Normal>);
+    pcl::PointCloud<PointT>::Ptr cloud_filtered2 (new pcl::PointCloud<PointT>);
+    pcl::PointCloud<pcl::Normal>::Ptr cloud_normals2 (new pcl::PointCloud<pcl::Normal>);
+    pcl::ModelCoefficients::Ptr coefficients_plane (new pcl::ModelCoefficients), coefficients_cylinder (new pcl::ModelCoefficients);
+    pcl::PointIndices::Ptr inliers_plane (new pcl::PointIndices), inliers_cylinder (new pcl::PointIndices);
+
+    // Build a passthrough filter to remove spurious NaNs
+    pass.setInputCloud (cloud);
+    pass.setFilterFieldName ("z");
+    pass.setFilterLimits (0, 1.5);
+    pass.filter (*cloud_filtered);
+    
+    // Estimate point normals
+    ne.setSearchMethod (tree);
+    ne.setInputCloud (cloud_filtered);
+    ne.setKSearch (50);
+    ne.compute (*cloud_normals);
+
+    // // Create the segmentation object for the planar model and set all the parameters
+    seg.setOptimizeCoefficients (true);
+    seg.setModelType (pcl::SACMODEL_NORMAL_PLANE);
+    seg.setNormalDistanceWeight (0.1);
+    seg.setMethodType (pcl::SAC_RANSAC);
+    seg.setMaxIterations (100);
+    seg.setDistanceThreshold (0.03);
+    seg.setInputCloud (cloud_filtered);
+    seg.setInputNormals (cloud_normals);
+
+    // Obtain the plane inliers and coefficients
+    seg.segment (*inliers_plane, *coefficients_plane);
+
+    // Extract the planar inliers from the input cloud
+    extract.setInputCloud (cloud_filtered);
+    extract.setIndices (inliers_plane);
+    extract.setNegative (false);
+
+    // Write the planar inliers to disk
+    // pcl::PointCloud<PointT>::Ptr cloud_plane (new pcl::PointCloud<PointT> ());
+    // extract.filter (*cloud_plane);
+
+    // Remove the planar inliers, extract the rest
+    extract.setNegative (true);
+    extract.filter (*cloud_filtered2);
+    extract_normals.setNegative (true);
+    extract_normals.setInputCloud (cloud_normals);
+    extract_normals.setIndices (inliers_plane);
+    extract_normals.filter (*cloud_normals2);
+
+    // Create the segmentation object for cylinder segmentation and set all the parameters
+    seg.setOptimizeCoefficients (true);
+    seg.setModelType (pcl::SACMODEL_NORMAL_SPHERE);
+    seg.setMethodType (pcl::SAC_RANSAC);
+    seg.setNormalDistanceWeight (0.1);
+    seg.setMaxIterations (1000000);
+    seg.setDistanceThreshold (0.01);
+    seg.setRadiusLimits (0, 0.15);
+    seg.setInputCloud (cloud_filtered2);
+    seg.setEpsAngle(15 / (180/3.141592654));
+    seg.setInputNormals (cloud_normals2);
+
+
+    // Obtain the cylinder inliers and coefficients
+    seg.segment (*inliers_cylinder, *coefficients_cylinder);
+
+    // Write the cylinder inliers to disk
+    extract.setInputCloud (cloud_filtered2);
+    extract.setIndices (inliers_cylinder);
+    extract.setNegative (false);
+    pcl::PointCloud<PointT>::Ptr cloud_cylinder (new pcl::PointCloud<PointT> ());
+    extract.filter (*cloud_cylinder);
+
+    //publish tf coeff
+
+    geometry_msgs::TransformStamped transformStamped;
+  
+    transformStamped.header.stamp = ros::Time::now();
+    transformStamped.header.frame_id = "/head_rgbd_sensor_rgb_frame";
+    transformStamped.child_frame_id = "/sphere";
+
+
+   transformStamped.transform.translation.x = coefficients_cylinder->values[0];
+   transformStamped.transform.translation.y = coefficients_cylinder->values[1];
+   transformStamped.transform.translation.z = coefficients_cylinder->values[2];
+
+   transformStamped.transform.rotation.x = 0;
+   transformStamped.transform.rotation.y = 0;
+   transformStamped.transform.rotation.z = 0;
+   transformStamped.transform.rotation.w = 1;
+
+    static 	tf::TransformBroadcaster tf_br;
+   	// tf::Transform transform;
+  	// transform.setOrigin(tf::Vector3(coefficients_cylinder->values[0], coefficients_cylinder->values[1], coefficients_cylinder->values[2]));
+  	// transform.setRotation(tf::Quaternion(0, 0, 0) );
+  	tf_br.sendTransform( transformStamped);
+
+
+
+    // We also added this
+    pcl::PCLPointCloud2 outputInProgress;
+    sensor_msgs::PointCloud2 output;
+    pcl::toPCLPointCloud2(*cloud_cylinder, outputInProgress);
+    pcl_conversions::fromPCL(outputInProgress, output);
+    cyl_pub2.publish (output);
 }
 
 
@@ -187,8 +345,8 @@ void cloud_cb (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
     sensor_msgs::PointCloud2 will_become_cylinder;
     pcl_conversions::fromPCL(cloud2, will_become_cylinder);
 
-    std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, 
-      pcl::PointCloud<pcl::PointXYZ>::Ptr> table_clouds = cloud_segment(will_become_cylinder);
+    std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, 
+      pcl::PointCloud<pcl::PointXYZRGB>::Ptr> table_clouds = cloud_segment(will_become_cylinder);
 
     // Create a container for the data.
     pcl::PCLPointCloud2 outputInProgressA;
@@ -208,8 +366,8 @@ void cloud_cb (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
     ROS_INFO("Now publishing table clouds");
 
 
-    std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, 
-      pcl::PointCloud<pcl::PointXYZ>::Ptr> object_clouds= cloud_segment(outputBetter);
+    std::pair<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, 
+      pcl::PointCloud<pcl::PointXYZRGB>::Ptr> object_clouds= cloud_segment(outputBetter);
 
     pcl::PCLPointCloud2 outputInProgressA2;
     sensor_msgs::PointCloud2 outputA2;
@@ -218,45 +376,14 @@ void cloud_cb (const boost::shared_ptr<const sensor_msgs::PointCloud2>& input)
     pcl_conversions::fromPCL(outputInProgressA2, outputA2);
 
     cyl_pub.publish (outputA2);
+
     cloud_cb3(will_become_cylinder); //test this
+    cloud_cb4(will_become_cylinder);
   // // Publish the data.
      table_pub.publish (outputA);
      not_table_pub.publish (outputBetter);
     
-  //   pcl::SACSegmentation<pcl::PointXYZ> seg;
-  
-  //   pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
-  //   pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
-  //   pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
 
-  //   seg.setOptimizeCoefficients (true);
-    
-  //   // Mandatory
-  //   seg.setModelType (pcl::SACMODEL_CYLINDER);
-  //   seg.setMethodType (pcl::SAC_RANSAC);
-  //   seg.setDistanceThreshold (0.01);
-
-  //   seg.setInputCloud (table_clouds.second);
-  //   seg.segment (*inliers, *coefficients);
-  //   tree->setInputCloud (table_clouds.second);
-  //   seg.setSamplesMaxDist(0.01, tree); //tune out the floor
-  //   pcl::ExtractIndices<pcl::PointXYZ> extract;
-
-  //   pcl::PointCloud<pcl::PointXYZ>::Ptr not_table_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-
-  //   extract.setInputCloud (table_clouds.second);
-  //   extract.setIndices (inliers);
-
-  //   extract.setNegative (true); 
-  //   extract.filter (*not_table_cloud);
-
-
-  //   pcl::PCLPointCloud2 outputInProgressC;
-  //   sensor_msgs::PointCloud2 outputC;
-  //   pcl::toPCLPointCloud2(*not_table_cloud, outputInProgressC);
-  //   pcl_conversions::fromPCL(outputInProgressC, outputC);
-
-   
 
 
     
@@ -280,8 +407,9 @@ int main (int argc, char** argv)
   not_table_pub = nh.advertise<sensor_msgs::PointCloud2> ("not_table", 1);
   cyl_pub = nh.advertise<sensor_msgs::PointCloud2> ("objects", 1);
   pub2 = nh.advertise<sensor_msgs::PointCloud2> ("please_cylinder", 1);
-//  cyl_pub2 = nh.advertise<sensor_msgs::PointCloud2> ("hopefully_just_cylinder", 1);
+  cyl_pub2 = nh.advertise<sensor_msgs::PointCloud2> ("please_sphere", 1);
   // pub2 = nh.advertise<sensor_msgs::PointCloud2> ("them_chips", 1);
+
 
   // Spin
   ros::spin ();
